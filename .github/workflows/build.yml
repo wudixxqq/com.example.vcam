@@ -39,10 +39,18 @@ jobs:
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
 
+    - name: Create tag
+      id: create_tag
+      run: |
+        TAG_NAME="v$(date +'%Y%m%d%H%M%S')"
+        git tag $TAG_NAME
+        git push origin $TAG_NAME
+        echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
+
     - name: Create Release
-      if: github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ steps.create_tag.outputs.TAG_NAME }}
         files: app/build/outputs/apk/release/*.apk
         draft: false
         prerelease: false
