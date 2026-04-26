@@ -9,25 +9,11 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/textView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:text="@string/description"
-            android:textSize="20sp" />
-
-        <TextView
-            android:id="@+id/textView2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/Warning"
-            android:textSize="20sp" />
-
         <Button
-            android:id="@+id/button"
+            android:id="@+id/btn_app_description"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/click_to_go_to_repo" />
+            android:text="应用说明" />
 
         <Button
             android:id="@+id/button2"
@@ -36,6 +22,229 @@
             android:layout_marginTop="5dp"
             android:layout_marginBottom="10dp"
             android:text="@string/gitee" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="视频管理"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="5dp" />
+
+        <Button
+            android:id="@+id/btn_select_video"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择视频文件"
+            android:layout_marginBottom="5dp" />
+
+        <Button
+            android:id="@+id/btn_browse_more_files"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="📁 选择更多文件"
+            android:layout_marginBottom="5dp" />
+
+        <TextView
+            android:id="@+id/tv_selected_video"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="当前视频：未选择"
+            android:textSize="14sp"
+            android:layout_marginBottom="5dp" />
+
+        <Button
+            android:id="@+id/btn_select_target_app"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="选择目标应用"
+            android:layout_marginBottom="5dp" />
+
+        <TextView
+            android:id="@+id/tv_target_app"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="目标应用：未选择"
+            android:textSize="14sp"
+            android:layout_marginBottom="10dp" />
+
+        <Button
+            android:id="@+id/btn_start_copy"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="📋 复制视频到应用私有目录"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#2196F3"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:id="@+id/tv_copy_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="状态：等待操作"
+            android:textSize="14sp"
+            android:textColor="#666666"
+            android:gravity="center"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="视频旋转设置"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="5dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="10dp">
+
+            <RadioGroup
+                android:id="@+id/rg_rotation"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/rb_rotation_0"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0度（默认）"
+                    android:checked="true" />
+
+                <RadioButton
+                    android:id="@+id/rb_rotation_90"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="90度" />
+
+                <RadioButton
+                    android:id="@+id/rb_rotation_180"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="180度" />
+
+                <RadioButton
+                    android:id="@+id/rb_rotation_270"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="270度" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginLeft="-30dp"
+                android:layout_marginTop="10dp"
+                android:text="当前功能已实现像素级视频旋转处理并将旋转后的视频数据传递给被HOOK的应用程序。请注意，本界面预览窗口仅显示视频的正常状态，无法实时展示完整的旋转效果。如需要查看或编辑完整旋转状态的视频文件，请使用专业视频编辑软件进行完整转换操作。"
+                android:textSize="13sp"
+                android:textColor="#666666"
+                android:gravity="center_vertical"
+                android:paddingStart="10dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="视频预览"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="5dp" />
+
+        <FrameLayout
+            android:id="@+id/video_preview_container"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:background="#000000"
+            android:layout_marginBottom="10dp">
+
+            <VideoView
+                android:id="@+id/video_preview_view"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center" />
+
+            <TextView
+                android:id="@+id/tv_no_video"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="请先选择视频文件"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/video_controls"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:padding="8dp"
+                android:background="#80000000"
+                android:visibility="gone">
+
+                <Button
+                    android:id="@+id/btn_play_pause"
+                    android:layout_width="60dp"
+                    android:layout_height="40dp"
+                    android:text="▶"
+                    android:textSize="18sp"
+                    android:backgroundTint="#4CAF50" />
+
+                <TextView
+                    android:id="@+id/tv_current_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:layout_marginStart="10dp" />
+
+                <SeekBar
+                    android:id="@+id/seekbar_progress"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="10dp"
+                    android:layout_marginEnd="10dp" />
+
+                <TextView
+                    android:id="@+id/tv_total_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </FrameLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="模块设置"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="5dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="调试工具"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="5dp" />
+
+
 
         <TableLayout
             android:layout_width="match_parent"

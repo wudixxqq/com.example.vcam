@@ -76,6 +76,12 @@ public class VideoToFrames implements Runnable {
     public void decode(String videoFilePath) throws Throwable {
         this.videoFilePath = videoFilePath;
         if (childThread == null) {
+            // 检查旋转设置是否有效
+            if (HookMain.video_rotation < 0 || HookMain.video_rotation >= 360) {
+                XposedBridge.log("【VCAM】无效的旋转角度：" + HookMain.video_rotation + "度，使用默认值0度");
+                HookMain.video_rotation = 0;
+            }
+            XposedBridge.log("【VCAM】开始解码视频，应用旋转角度：" + HookMain.video_rotation + "度");
             childThread = new Thread(this, "decode");
             childThread.start();
             if (throwable != null) {
@@ -200,30 +206,29 @@ public class VideoToFrames implements Runnable {
                     }
                     if (play_surf == null) {
                         Image image = decoder.getOutputImage(outputBufferId);
-                        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                        byte[] arr = new byte[buffer.remaining()];
-                        buffer.get(arr);
-                        if (mQueue != null) {
-                            try {
-                                mQueue.put(arr);
-                            } catch (InterruptedException e) {
-                                XposedBridge.log("【VCAM】" + e.toString());
-                            }
-                        }
                         if (outputImageFormat != null) {
-                            HookMain.data_buffer = getDataFromImage(image, COLOR_FormatNV21);
+                            HookMain.data_buffer = getDataFromImage(image, COLOR_FormatNV21, HookMain.video_rotation);
+                        }
+                        image.close();
+                    } else {
+                        // 当有Surface时，也需要应用旋转
+                        Image image = decoder.getOutputImage(outputBufferId);
+                        if (outputImageFormat != null) {
+                            HookMain.data_buffer = getDataFromImage(image, COLOR_FormatNV21, HookMain.video_rotation);
                         }
                         image.close();
                     }
+                    
+                    // 优化睡眠逻辑，避免不必要的阻塞
                     long sleepTime = info.presentationTimeUs / 1000 - (System.currentTimeMillis() - startWhen);
-                    if (sleepTime > 0) {
+                    if (sleepTime > 0 && sleepTime < 100) { // 限制最大睡眠时间
                         try {
                             Thread.sleep(sleepTime);
                         } catch (InterruptedException e) {
                             XposedBridge.log("【VCAM】" + e.toString());
-                            XposedBridge.log("【VCAM】线程延迟出错");
                         }
                     }
+                    
                     decoder.releaseOutputBuffer(outputBufferId, true);
                 }
             }
@@ -259,19 +264,34 @@ public class VideoToFrames implements Runnable {
         return false;
     }
 
-    private static byte[] getDataFromImage(Image image, int colorFormat) {
+    private static byte[] getDataFromImage(Image image, int colorFormat, int rotation) {
         if (colorFormat != COLOR_FormatI420 && colorFormat != COLOR_FormatNV21) {
             throw new IllegalArgumentException("only support COLOR_FormatI420 " + "and COLOR_FormatNV21");
         }
         if (!isImageFormatSupported(image)) {
             throw new RuntimeException("can't convert Image to byte array, format " + image.getFormat());
         }
+        
+        // 验证旋转角度
+        if (rotation < 0 || rotation >= 360) {
+            XposedBridge.log("【VCAM】无效的旋转角度：" + rotation + "度，使用默认值0度");
+            rotation = 0;
+        }
+        
         Rect crop = image.getCropRect();
         int format = image.getFormat();
         int width = crop.width();
         int height = crop.height();
+        
+        // 根据旋转角度调整宽高
+        boolean rotated = (rotation == 90 || rotation == 270);
+        int outputWidth = rotated ? height : width;
+        int outputHeight = rotated ? width : height;
+        
+        XposedBridge.log("【VCAM】处理视频帧：宽=" + width + "，高=" + height + "，旋转角度=" + rotation + "度，输出宽=" + outputWidth + "，输出高=" + outputHeight);
+        
         Image.Plane[] planes = image.getPlanes();
-        byte[] data = new byte[width * height * ImageFormat.getBitsPerPixel(format) / 8];
+        byte[] data = new byte[outputWidth * outputHeight * ImageFormat.getBitsPerPixel(format) / 8];
         byte[] rowData = new byte[planes[0].getRowStride()];
         if (VERBOSE) Log.v(TAG, "get data from " + planes.length + " planes");
         int channelOffset = 0;
@@ -284,19 +304,19 @@ public class VideoToFrames implements Runnable {
                     break;
                 case 1:
                     if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = width * height;
+                        channelOffset = outputWidth * outputHeight;
                         outputStride = 1;
                     } else if (colorFormat == COLOR_FormatNV21) {
-                        channelOffset = width * height + 1;
+                        channelOffset = outputWidth * outputHeight + 1;
                         outputStride = 2;
                     }
                     break;
                 case 2:
                     if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = (int) (width * height * 1.25);
+                        channelOffset = (int) (outputWidth * outputHeight * 1.25);
                         outputStride = 1;
                     } else if (colorFormat == COLOR_FormatNV21) {
-                        channelOffset = width * height;
+                        channelOffset = outputWidth * outputHeight;
                         outputStride = 2;
                     }
                     break;
@@ -310,29 +330,82 @@ public class VideoToFrames implements Runnable {
                 Log.v(TAG, "width " + width);
                 Log.v(TAG, "height " + height);
                 Log.v(TAG, "buffer size " + buffer.remaining());
+                Log.v(TAG, "rotation " + rotation);
+                Log.v(TAG, "outputWidth " + outputWidth);
+                Log.v(TAG, "outputHeight " + outputHeight);
             }
             int shift = (i == 0) ? 0 : 1;
             int w = width >> shift;
             int h = height >> shift;
+            int outputW = rotated ? h : w;
+            int outputH = rotated ? w : h;
+            
             buffer.position(rowStride * (crop.top >> shift) + pixelStride * (crop.left >> shift));
-            for (int row = 0; row < h; row++) {
-                int length;
-                if (pixelStride == 1 && outputStride == 1) {
-                    length = w;
-                    buffer.get(data, channelOffset, length);
-                    channelOffset += length;
-                } else {
-                    length = (w - 1) * pixelStride + 1;
-                    buffer.get(rowData, 0, length);
-                    for (int col = 0; col < w; col++) {
-                        data[channelOffset] = rowData[col * pixelStride];
-                        channelOffset += outputStride;
+            
+            if (rotation == 0) {
+                // 无旋转
+                for (int row = 0; row < h; row++) {
+                    int length;
+                    if (pixelStride == 1 && outputStride == 1) {
+                        length = w;
+                        buffer.get(data, channelOffset, length);
+                        channelOffset += length;
+                    } else {
+                        length = (w - 1) * pixelStride + 1;
+                        buffer.get(rowData, 0, length);
+                        for (int col = 0; col < w; col++) {
+                            data[channelOffset] = rowData[col * pixelStride];
+                            channelOffset += outputStride;
+                        }
+                    }
+                    if (row < h - 1) {
+                        buffer.position(buffer.position() + rowStride - length);
                     }
                 }
-                if (row < h - 1) {
-                    buffer.position(buffer.position() + rowStride - length);
+            } else if (rotation == 90) {
+                // 顺时针旋转90度
+                for (int row = 0; row < h; row++) {
+                    int length = (w - 1) * pixelStride + 1;
+                    buffer.get(rowData, 0, length);
+                    for (int col = 0; col < w; col++) {
+                        int targetPos = col * outputW + (h - 1 - row);
+                        data[channelOffset + targetPos * outputStride] = rowData[col * pixelStride];
+                    }
+                    if (row < h - 1) {
+                        buffer.position(buffer.position() + rowStride - length);
+                    }
                 }
+                channelOffset += outputW * outputH * outputStride;
+            } else if (rotation == 180) {
+                // 旋转180度
+                for (int row = 0; row < h; row++) {
+                    int length = (w - 1) * pixelStride + 1;
+                    buffer.get(rowData, 0, length);
+                    for (int col = 0; col < w; col++) {
+                        int targetPos = (h - 1 - row) * outputW + (w - 1 - col);
+                        data[channelOffset + targetPos * outputStride] = rowData[col * pixelStride];
+                    }
+                    if (row < h - 1) {
+                        buffer.position(buffer.position() + rowStride - length);
+                    }
+                }
+                channelOffset += outputW * outputH * outputStride;
+            } else if (rotation == 270) {
+                // 顺时针旋转270度（逆时针90度）
+                for (int row = 0; row < h; row++) {
+                    int length = (w - 1) * pixelStride + 1;
+                    buffer.get(rowData, 0, length);
+                    for (int col = 0; col < w; col++) {
+                        int targetPos = (w - 1 - col) * outputW + row;
+                        data[channelOffset + targetPos * outputStride] = rowData[col * pixelStride];
+                    }
+                    if (row < h - 1) {
+                        buffer.position(buffer.position() + rowStride - length);
+                    }
+                }
+                channelOffset += outputW * outputH * outputStride;
             }
+            
             if (VERBOSE) Log.v(TAG, "Finished reading data from plane " + i);
         }
         return data;

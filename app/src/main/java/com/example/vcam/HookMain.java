@@ -32,6 +32,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+
+import com.example.vcam.RootManager;
 import java.util.concurrent.Executor;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -70,7 +72,7 @@ public class HookMain implements IXposedHookLoadPackage {
     public static int onemwidth;
     public static Class camera_callback_calss;
 
-    public static String video_path = "/storage/emulated/0/DCIM/Camera1/";
+    public static String video_path = "/data/media/0/DCIM/Camera1/";
 
     public static Surface c2_preview_Surfcae;
     public static Surface c2_preview_Surfcae_1;
@@ -87,6 +89,115 @@ public class HookMain implements IXposedHookLoadPackage {
     public static SessionConfiguration sessionConfiguration;
     public static OutputConfiguration outputConfiguration;
     public boolean need_to_show_toast = true;
+    // 使用volatile确保多线程环境下的可见性
+    public static volatile int video_rotation = 0;
+
+    // 旋转设置缓存
+    private static Integer rotationCache = null;
+    private static long lastCacheTime = 0;
+    private static final long CACHE_DURATION = 5000; // 5秒缓存
+    
+    private int readRotationSetting() {
+        // 检查缓存是否有效
+        if (rotationCache != null && System.currentTimeMillis() - lastCacheTime < CACHE_DURATION) {
+            XposedBridge.log("【VCAM】使用缓存的旋转设置：" + rotationCache + "度");
+            return rotationCache;
+        }
+        
+        int result = 0;
+        try {
+            // 首先尝试从当前video_path读取旋转设置
+            File rotationFile = new File(video_path + "rotation.txt");
+            if (rotationFile.exists()) {
+                java.util.Scanner scanner = new java.util.Scanner(rotationFile);
+                if (scanner.hasNextInt()) {
+                    result = scanner.nextInt();
+                    scanner.close();
+                    XposedBridge.log("【VCAM】从" + video_path + "读取旋转设置：" + result + "度");
+                    updateRotationCache(result);
+                    return result;
+                }
+                scanner.close();
+            }
+            
+            // 如果当前路径没有旋转设置，尝试从另一个可能的位置读取
+            String alternativePath;
+            if (video_path.contains("Android/data")) {
+                // 如果当前是私有目录，尝试从公共目录读取
+                alternativePath = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
+            } else {
+                // 如果当前是公共目录，尝试从私有目录读取
+                if (toast_content != null) {
+                    alternativePath = toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/";
+                } else {
+                    // 如果toast_content为null，使用默认的公共目录
+                    alternativePath = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
+                }
+            }
+            
+            File alternativeFile = new File(alternativePath + "rotation.txt");
+            if (alternativeFile.exists()) {
+                java.util.Scanner scanner = new java.util.Scanner(alternativeFile);
+                if (scanner.hasNextInt()) {
+                    result = scanner.nextInt();
+                    scanner.close();
+                    XposedBridge.log("【VCAM】从备用路径" + alternativePath + "读取旋转设置：" + result + "度");
+                    updateRotationCache(result);
+                    return result;
+                }
+                scanner.close();
+            }
+            
+            // 尝试从其他可能的位置读取
+            try {
+                // 直接从公共目录读取
+                File publicFile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/rotation.txt");
+                if (publicFile.exists()) {
+                    java.util.Scanner scanner = new java.util.Scanner(publicFile);
+                    if (scanner.hasNextInt()) {
+                        result = scanner.nextInt();
+                        scanner.close();
+                        XposedBridge.log("【VCAM】从公共目录读取旋转设置：" + result + "度");
+                        updateRotationCache(result);
+                        return result;
+                    }
+                    scanner.close();
+                }
+            } catch (Exception e2) {
+                XposedBridge.log("【VCAM】备选方案读取失败：" + e2.toString());
+            }
+            
+        } catch (Exception e) {
+            XposedBridge.log("【VCAM】读取旋转设置失败：" + e.toString());
+            // 尝试备选方案
+            try {
+                // 直接从公共目录读取
+                File publicFile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/rotation.txt");
+                if (publicFile.exists()) {
+                    java.util.Scanner scanner = new java.util.Scanner(publicFile);
+                    if (scanner.hasNextInt()) {
+                        result = scanner.nextInt();
+                        scanner.close();
+                        XposedBridge.log("【VCAM】从公共目录读取旋转设置：" + result + "度");
+                        updateRotationCache(result);
+                        return result;
+                    }
+                    scanner.close();
+                }
+            } catch (Exception e2) {
+                XposedBridge.log("【VCAM】备选方案读取失败：" + e2.toString());
+            }
+        }
+        
+        XposedBridge.log("【VCAM】使用默认旋转设置：0度");
+        updateRotationCache(result);
+        return result;
+    }
+    
+    private void updateRotationCache(int rotation) {
+        rotationCache = rotation;
+        lastCacheTime = System.currentTimeMillis();
+    }
 
     public int c2_ori_width = 1280;
     public int c2_ori_height = 720;
@@ -316,29 +427,38 @@ public class HookMain implements IXposedHookLoadPackage {
                             }
                         }
                         //权限判断完毕
+                        // 即使没有存储权限，也尝试使用ROOT权限进行复制
                         if (auth_statue < 1 || force_private.exists()) {
-                            File shown_file = new File(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/");
-                            if ((!shown_file.isDirectory()) && shown_file.exists()) {
-                                shown_file.delete();
+                            File privateDir = new File(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/");
+                            if ((!privateDir.isDirectory()) && privateDir.exists()) {
+                                privateDir.delete();
                             }
-                            if (!shown_file.exists()) {
-                                shown_file.mkdir();
-                            }
-                            shown_file = new File(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/" + "has_shown");
-                            File toast_force_file = new File(Environment.getExternalStorageDirectory().getPath()+ "/DCIM/Camera1/force_show.jpg");
-                            if ((!lpparam.packageName.equals(BuildConfig.APPLICATION_ID)) && ((!shown_file.exists()) || toast_force_file.exists())) {
-                                try {
-                                    Toast.makeText(toast_content, lpparam.packageName+"未授予读取本地目录权限，请检查权限\nCamera1目前重定向为 " + toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/", Toast.LENGTH_SHORT).show();
-                                    FileOutputStream fos = new FileOutputStream(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/" + "has_shown");
-                                    String info = "shown";
-                                    fos.write(info.getBytes());
-                                    fos.flush();
-                                    fos.close();
-                                } catch (Exception e) {
-                                    XposedBridge.log("【VCAM】[switch-dir]" + e.toString());
-                                }
+                            if (!privateDir.exists()) {
+                                privateDir.mkdir();
                             }
                             video_path = toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/";
+                            
+                            // 即使没有存储权限，也尝试使用ROOT权限复制视频
+                            try {
+                                // 尝试使用ROOT权限复制视频
+                                RootManager rootManager = RootManager.getInstance();
+                                if (rootManager.checkRootAccess()) {
+                                    XposedBridge.log("【VCAM】使用ROOT权限复制视频到私有目录");
+                                    // 从公共DCIM目录复制到私有目录
+                                    File publicVideo = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/virtual.mp4");
+                                    File privateVideo = new File(video_path + "virtual.mp4");
+                                    if (publicVideo.exists()) {
+                                        boolean copied = rootManager.copyFile(publicVideo.getAbsolutePath(), privateVideo.getAbsolutePath());
+                                        if (copied) {
+                                            XposedBridge.log("【VCAM】ROOT权限复制成功");
+                                        } else {
+                                            XposedBridge.log("【VCAM】ROOT权限复制失败");
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                XposedBridge.log("【VCAM】ROOT权限复制异常: " + e.toString());
+                            }
                         }else {
                             video_path = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
                         }
@@ -380,81 +500,116 @@ public class HookMain implements IXposedHookLoadPackage {
                 XposedBridge.log("【VCAM】开始预览");
                 start_preview_camera = (Camera) param.thisObject;
                 if (ori_holder != null) {
-
-                    if (mplayer1 == null) {
-                        mplayer1 = new MediaPlayer();
-                    } else {
-                        mplayer1.release();
-                        mplayer1 = null;
-                        mplayer1 = new MediaPlayer();
-                    }
-                    if (!ori_holder.getSurface().isValid() || ori_holder == null) {
-                        return;
-                    }
-                    mplayer1.setSurface(ori_holder.getSurface());
-                    File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
-                    if (!(sfile.exists() && (!is_someone_playing))) {
-                        mplayer1.setVolume(0, 0);
-                        is_someone_playing = false;
-                    } else {
-                        is_someone_playing = true;
-                    }
-                    mplayer1.setLooping(true);
-
-                    mplayer1.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                        @Override
-                        public void onPrepared(MediaPlayer mp) {
-                            mplayer1.start();
+                    // 读取旋转设置
+                    video_rotation = readRotationSetting();
+                    XposedBridge.log("【VCAM】预览旋转角度: " + video_rotation + "度");
+                    
+                    if (video_rotation == 0) {
+                        // 无旋转时使用MediaPlayer
+                        if (mplayer1 == null) {
+                            mplayer1 = new MediaPlayer();
+                        } else {
+                            mplayer1.release();
+                            mplayer1 = null;
+                            mplayer1 = new MediaPlayer();
                         }
-                    });
+                        if (!ori_holder.getSurface().isValid() || ori_holder == null) {
+                            return;
+                        }
+                        mplayer1.setSurface(ori_holder.getSurface());
+                        File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
+                        if (!(sfile.exists() && (!is_someone_playing))) {
+                            mplayer1.setVolume(0, 0);
+                            is_someone_playing = false;
+                        } else {
+                            is_someone_playing = true;
+                        }
+                        mplayer1.setLooping(true);
 
-                    try {
-                        mplayer1.setDataSource(video_path + "virtual.mp4");
-                        mplayer1.prepare();
-                    } catch (IOException e) {
-                        XposedBridge.log("【VCAM】" + e.toString());
+                        mplayer1.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                            @Override
+                            public void onPrepared(MediaPlayer mp) {
+                                mplayer1.start();
+                            }
+                        });
+
+                        try {
+                            mplayer1.setDataSource(video_path + "virtual.mp4");
+                            mplayer1.prepare();
+                        } catch (IOException e) {
+                            XposedBridge.log("【VCAM】" + e.toString());
+                        }
+                    } else {
+                        // 有旋转时使用VideoToFrames
+                        if (hw_decode_obj != null) {
+                            hw_decode_obj.stopDecode();
+                        }
+                        hw_decode_obj = new VideoToFrames();
+                        hw_decode_obj.setSaveFrames("", OutputImageFormat.NV21);
+                        hw_decode_obj.set_surfcae(ori_holder.getSurface());
+                        hw_decode_obj.decode(video_path + "virtual.mp4");
+                        XposedBridge.log("【VCAM】使用VideoToFrames播放带旋转的视频");
                     }
                 }
 
 
                 if (mSurfacetexture != null) {
-                    if (mSurface == null) {
-                        mSurface = new Surface(mSurfacetexture);
-                    } else {
-                        mSurface.release();
-                        mSurface = new Surface(mSurfacetexture);
-                    }
-
-                    if (mMediaPlayer == null) {
-                        mMediaPlayer = new MediaPlayer();
-                    } else {
-                        mMediaPlayer.release();
-                        mMediaPlayer = new MediaPlayer();
-                    }
-
-                    mMediaPlayer.setSurface(mSurface);
-
-                    File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
-                    if (!(sfile.exists() && (!is_someone_playing))) {
-                        mMediaPlayer.setVolume(0, 0);
-                        is_someone_playing = false;
-                    } else {
-                        is_someone_playing = true;
-                    }
-                    mMediaPlayer.setLooping(true);
-
-                    mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                        @Override
-                        public void onPrepared(MediaPlayer mp) {
-                            mMediaPlayer.start();
+                    if (video_rotation == 0) {
+                        // 无旋转时使用MediaPlayer
+                        if (mSurface == null) {
+                            mSurface = new Surface(mSurfacetexture);
+                        } else {
+                            mSurface.release();
+                            mSurface = new Surface(mSurfacetexture);
                         }
-                    });
 
-                    try {
-                        mMediaPlayer.setDataSource(video_path + "virtual.mp4");
-                        mMediaPlayer.prepare();
-                    } catch (IOException e) {
-                        XposedBridge.log("【VCAM】" + e.toString());
+                        if (mMediaPlayer == null) {
+                            mMediaPlayer = new MediaPlayer();
+                        } else {
+                            mMediaPlayer.release();
+                            mMediaPlayer = new MediaPlayer();
+                        }
+
+                        mMediaPlayer.setSurface(mSurface);
+
+                        File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
+                        if (!(sfile.exists() && (!is_someone_playing))) {
+                            mMediaPlayer.setVolume(0, 0);
+                            is_someone_playing = false;
+                        } else {
+                            is_someone_playing = true;
+                        }
+                        mMediaPlayer.setLooping(true);
+
+                        mMediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                            @Override
+                            public void onPrepared(MediaPlayer mp) {
+                                mMediaPlayer.start();
+                            }
+                        });
+
+                        try {
+                            mMediaPlayer.setDataSource(video_path + "virtual.mp4");
+                            mMediaPlayer.prepare();
+                        } catch (IOException e) {
+                            XposedBridge.log("【VCAM】" + e.toString());
+                        }
+                    } else {
+                        // 有旋转时使用VideoToFrames
+                        if (hw_decode_obj != null) {
+                            hw_decode_obj.stopDecode();
+                        }
+                        if (mSurface == null) {
+                            mSurface = new Surface(mSurfacetexture);
+                        } else {
+                            mSurface.release();
+                            mSurface = new Surface(mSurfacetexture);
+                        }
+                        hw_decode_obj = new VideoToFrames();
+                        hw_decode_obj.setSaveFrames("", OutputImageFormat.NV21);
+                        hw_decode_obj.set_surfcae(mSurface);
+                        hw_decode_obj.decode(video_path + "virtual.mp4");
+                        XposedBridge.log("【VCAM】使用VideoToFrames播放带旋转的视频 (SurfaceTexture)");
                     }
                 }
             }
@@ -702,9 +857,10 @@ public class HookMain implements IXposedHookLoadPackage {
                     c2_hw_decode_obj.setSaveFrames("null", OutputImageFormat.JPEG);
                 } else {
                     c2_hw_decode_obj.setSaveFrames("null", OutputImageFormat.NV21);
-                }
-                c2_hw_decode_obj.set_surfcae(c2_reader_Surfcae);
-                c2_hw_decode_obj.decode(video_path + "virtual.mp4");
+            }
+            c2_hw_decode_obj.set_surfcae(c2_reader_Surfcae);
+            video_rotation = readRotationSetting();
+            c2_hw_decode_obj.decode(video_path + "virtual.mp4");
             } catch (Throwable throwable) {
                 XposedBridge.log("【VCAM】" + throwable);
             }
@@ -1143,6 +1299,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                     hw_decode_obj = new VideoToFrames();
                     hw_decode_obj.setSaveFrames("", OutputImageFormat.NV21);
+                    video_rotation = readRotationSetting();
                     hw_decode_obj.decode(video_path + "virtual.mp4");
                     while (data_buffer == null) {
                     }
