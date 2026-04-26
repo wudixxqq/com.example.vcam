@@ -5,10 +5,13 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - uses: actions/checkout@v4
@@ -35,3 +38,13 @@ jobs:
         name: app-release
         path: app/build/outputs/apk/release/*.apk
         retention-days: 30
+
+    - name: Create Release
+      if: github.event_name == 'workflow_dispatch'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/apk/release/*.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
