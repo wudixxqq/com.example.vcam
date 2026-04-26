@@ -26,9 +26,12 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleRelease
 
+    - name: List build directory
+      run: ls -la app/build/outputs/apk/release/
+
     - name: Upload APK as artifact
       uses: actions/upload-artifact@v4
       with:
         name: app-release
-        path: app/build/outputs/apk/release/app-release.apk
+        path: app/build/outputs/apk/release/*.apk
         retention-days: 30
